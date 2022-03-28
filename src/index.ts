@@ -17,7 +17,8 @@ const twitchClient = new TwitchClient(
       password: process.env.TWITCH_PASSWORD || "",
     },
     channels: [process.env.TWITCH_CHANNEL || ""],
-  })
+  }),
+  discordClient
 );
 
 discordClient.init();
