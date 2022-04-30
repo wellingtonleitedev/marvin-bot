@@ -5,23 +5,37 @@ import {
   User,
   Guild,
   VoiceBasedChannel,
+  TextBasedChannel,
 } from "discord.js";
 import { Player, Queue } from "discord-player";
+import TwitchClient from "./twitchClient";
 
 interface Info {
   user: User;
-  channel: VoiceBasedChannel;
+  voiceChannel: VoiceBasedChannel;
+  textChannel: any;
+  message: any;
+}
+
+interface IQueue extends Queue {
+  metadata?: {
+    channel: any;
+  };
 }
 
 export default class DiscordClient {
+  public instance: DiscordClient;
   private _client: Client;
-  private _queue = {} as Queue;
+  private _queue = {} as IQueue;
   private _player = {} as Player;
+
   public readonly _info: Info = {
     user: {} as User,
-    channel: {
+    message: null,
+    voiceChannel: {
       guild: {} as Guild,
     } as VoiceBasedChannel,
+    textChannel: {} as TextBasedChannel,
   };
 
   constructor() {
@@ -33,6 +47,7 @@ export default class DiscordClient {
       ],
     });
 
+    this.instance = this;
     this._player = new Player(this._client);
   }
 
@@ -45,25 +60,28 @@ export default class DiscordClient {
 
   private async listenerOnReady() {
     this._client.on("ready", async (client) => {
-      const channel = (await client.channels.fetch(
-        process.env.TWITCH_VOICE_CHANNEL_DEFAULT ?? ""
+      const voiceChannel = (await client.channels.fetch(
+        process.env.TWITCH_VOICE_CHANNEL_DEFAULT!
       )) as VoiceBasedChannel;
 
-      this._info.channel = channel;
+      const textChannel = await client.channels.fetch(
+        process.env.TWITCH_TEXT_CHANNEL_DEFAULT ?? ""
+      );
+
+      this._info.voiceChannel = voiceChannel;
+      this._info.textChannel = voiceChannel;
+
       console.log(`Logged in!`);
     });
   }
 
   private async listenerOnReceiveMessage() {
     this._client.on("messageCreate", async (message: Message) => {
-      console.log({
-        message,
-      });
-
       if (!message.member?.voice?.channel) return;
 
-      this._info.channel = message.member.voice.channel;
+      this._info.voiceChannel = message.member.voice.channel;
       this._info.user = message.author;
+      this._info.message = message;
 
       const command = message.content.split(" ").at(0);
       const query = message.content.replace(/!play/g, "");
@@ -82,7 +100,6 @@ export default class DiscordClient {
   }
 
   public async play(query: string) {
-    console.log({ query });
     await this.createPlayerConnection();
     await this.startQueue(query);
   }
@@ -92,15 +109,15 @@ export default class DiscordClient {
   }
 
   private async createPlayerConnection() {
-    this._queue = this._player.createQueue(this._info?.channel?.guild, {
+    this._queue = this._player.createQueue(this._info?.voiceChannel?.guild, {
       metadata: {
-        channel: this._info.channel,
+        channel: this._info.voiceChannel,
       },
     });
 
     try {
       if (!this._queue.connection)
-        await this._queue.connect(this._info.channel);
+        await this._queue.connect(this._info.voiceChannel);
     } catch {
       this._queue.destroy();
       // return await this._message.reply({
@@ -110,6 +127,8 @@ export default class DiscordClient {
   }
 
   private async startQueue(query: string) {
+    const twitchClient = TwitchClient.getInstance(this.instance);
+
     // await this._message.deferReply();
     const track = await this._player
       .search(query, {
@@ -118,11 +137,18 @@ export default class DiscordClient {
       .then((x) => x.tracks[0]);
 
     if (!track) {
-      console.log(`❌ | Track **${query}** not found!`);
+      this._info.message.reply(`❌ | Track **${query}** not found!`);
     }
 
     this._queue.play(track);
 
-    return console.log(`⏱️ | Loading track **${track.title}**!`);
+    // this._player.on("trackStart", (queue, track) => {
+    // twitchClient.sendMessage(`🎶 | Now playing **${track.title}**!`);
+    // this._queue.metadata?.channel?.send(
+    //   `🎶 | Now playing **${track.title}**!`
+    // );
+    // });
+
+    // return this._info.message.reply(`⏱️ | Loading track **${track.title}**!`);
   }
 }
